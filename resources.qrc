@@ -1,0 +1,14 @@
+<RCC>
+  <qresource prefix="arrow_up">
+    <file>up.svg</file>
+  </qresource>
+  <qresource prefix="arrow_down">
+    <file>arrow_down.png</file>
+  </qresource>
+  <qresource prefix="clockwise">
+    <file>clockwise.svg</file>
+  </qresource>
+  <qresource prefix="anticlockwise">
+    <file>anticlockwise.svg</file>
+  </qresource>
+</RCC>

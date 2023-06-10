@@ -1,5 +1,6 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 from opcua import Client
+from opcua import ua
 from opcua.common.subscription import SubHandler
 import time
 
@@ -203,3 +204,65 @@ class OpcuaThread(QThread):
 
         self.prev_server_connected = serverStatus
 
+
+#------------------------------------------------------------------------------------------------------------#   
+    def setValue(self, node, value):
+        if isinstance(value, bool):
+            variant_type = ua.VariantType.Boolean
+        elif isinstance(value, int):
+            variant_type = ua.VariantType.UInt32
+        elif isinstance(value, float):
+            variant_type = ua.VariantType.Double
+        elif isinstance(value, str):
+            variant_type = ua.VariantType.String
+        else:
+            raise ValueError(f'Unsupported value type: {type(value)}')
+
+        dv = ua.DataValue(ua.Variant(value, variant_type))
+        dv.ServerTimestamp = None
+        dv.SourceTimestamp = None
+        node.set_value(dv)
+
+    def setBoolean(self, node, value):
+        self.setValue(node, value)
+
+    def setPushButton(self, node):
+        self.setBoolean(node, True)
+        time.sleep(0.1)
+        self.setBoolean(node, False)
+
+    def setAbsoluteValues(self, axisNode, value, pushButtonNode):
+        try:
+            payload = float(value.text())
+            self.setValue(axisNode, payload)
+            self.setPushButton(pushButtonNode)
+        except ValueError:
+            return f"Error: Cannot convert '{value.text()}' to float"
+        
+    def copyOpcuaValues(self, src, dst):
+        for attr in dir(src):
+            if not callable(getattr(src, attr)) and not attr.startswith("__"):
+                setattr(dst, attr, getattr(src, attr))
+
+    def updateOpcuaValues(self, opcuaInstance, updatesDict):
+        for key, value in updatesDict.items():
+            if hasattr(opcuaInstance, key):
+                setattr(opcuaInstance, key, value)
+            else:
+                print(f"Warning: '{key}' not found in the instance")
+
+    def writeCustomType(self, client, nodeId, customDataTypeInstance, updates):
+        # Get the node for the custom data type
+        node = client.get_node(nodeId)
+
+        # Create a new instance of the custom data type and copy values from the original instance
+        dvCustom = customDataTypeInstance.__class__()
+        self.copyOpcuaValues(customDataTypeInstance, dvCustom)
+
+        # Update the custom data type properties with the new values
+        self.updateOpcuaValues(dvCustom, updates)
+
+        # Convert the custom data type to DataValue with Variant and write it back to the node
+        dvCustom = ua.DataValue(ua.Variant(dvCustom, ua.VariantType.ExtensionObject))
+        node.set_value(dvCustom)
+#------------------------------------------------------------------------------------------------------------#       

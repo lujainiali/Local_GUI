@@ -22,23 +22,23 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         uic.loadUi('gui_v2.0.ui', self)
-        self.update_gui_error_shown = False 
+        self.updateGui_error_shown = False 
         self.stackedWidget.setCurrentIndex(0)
         self.stackedWidget_2.setCurrentIndex(0)
 
-        self.opcua_thread = OpcuaThread()
-        self.opcua_thread.statusSignal.connect(self.gui_main)
-        self.opcua_thread.showMessageSignal.connect(self.update_text)
-        self.opcua_thread.start()
+        self.opcuaThread = OpcuaThread()
+        self.opcuaThread.statusSignal.connect(self.guiMain)
+        self.opcuaThread.showMessageSignal.connect(self.update_text)
+        self.opcuaThread.start()
 
-        self.node_values = self.opcua_thread.get_all_node_values()
+        self.node_values = self.opcuaThread.get_all_node_values()
 
-        self.update_gui_timer = QtCore.QTimer()
-        self.update_gui_timer.setInterval(50)
-        self.update_gui_timer.timeout.connect(self.update_gui)
+        self.updateGui_timer = QtCore.QTimer()
+        self.updateGui_timer.setInterval(50)
+        self.updateGui_timer.timeout.connect(self.updateGui)
 
     # update status of the system to the user
-    def show_message(self, title, message):
+    def showMessage(self, title, message):
         message = f"{title}: {message}"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -53,16 +53,16 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         # Stop the timer (if it's running)
-        if self.update_gui_timer.isActive():
-            self.update_gui_timer.stop()
+        if self.updateGui_timer.isActive():
+            self.updateGui_timer.stop()
 
-        self.opcua_thread.is_terminating = True
+        self.opcuaThread.is_terminating = True
 
         # Disconnect from OPC UA server
-        self.opcua_thread.opcua_server_disconnect()
+        self.opcuaThread.opcua_server_disconnect()
 
         # Stop the thread
-        self.opcua_thread.quit()  # request to stop
+        self.opcuaThread.quit()  # request to stop
         # Accept the close event
         event.accept()
 
@@ -75,19 +75,44 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
     def changeMode(self, index):
         self.stackedWidget_2.setCurrentIndex(index)
 
+    def getNodes(self):
+        self.nodeMyBool1 = self.opcuaThread.client.get_node("ns=4;s=MAIN.myVar1.myBool")
+        self.nodeMyInt1 = self.opcuaThread.client.get_node("ns=4;s=MAIN.myVar1.myInt")
+
     # initiate the widgets and to assign functions to widgets 
-    def assign_functions(self):
+    def assignFunctions(self):
         self.comboBox.activated.connect(self.changePage)
-        self.groupBox_8.updated.connect(self.retrieve_variables_json_measurement)
+        self.groupBox_8.updated.connect(self.advanceRetrieveVariablesJson)
         self.json_scan_mode.activated.connect(self.changeMode)
+        self.einaus_Xray.clicked.connect(self.setParameters)
+
+    def setParameters(self):
+
+        try:
+
+            self.opcuaThread.setValue(self.nodeMyBool1, False)
+            self.opcuaThread.setValue(self.nodeMyInt1, 100)
+
+            node_id = "ns=4;s=MAIN.myVar1"
+            node = self.opcuaThread.client.get_node(node_id)
+            custom_data_type_instance = node.get_value()
+
+            updates_stopcua = {
+                "myReal": float(self.file_name),
+            }
+
+            # self.opcuaThread.writeCustomType(self.opcuaThread.client, node_id, custom_data_type_instance, updates_stopcua)
+
+        except Exception as e:
+            print(f"An error occurred while setting parameters: {str(e)}")
 
     def update_text(self, message):
        print(f"Received message {message}")
-       self.show_message("System Status", message)
+       self.showMessage("System Status", message)
 
-    def update_gui(self):
+    def updateGui(self):
         try:
-            if self.opcua_thread.is_sub:
+            if self.opcuaThread.is_sub:
                 self.myBool_value = self.node_values["ns=4;s=MAIN.myVar1"]["myBool"]
                 self.myInt1_value = self.node_values["ns=4;s=MAIN.myVar1"]["myInt"]
                 self.myInt2_value = self.node_values["ns=4;s=MAIN.myVar2"]["myInt"]
@@ -95,30 +120,17 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
                 self.ZB_nActPos.setText(str(self.myInt1_value))
                 self.R_nActPos.setText(str(self.myInt2_value))
 
-            self.update_gui_error_shown = False  
+                self.directory_path = self.path.text()
+                self.file_name = self.name.text()
+
+            self.updateGui_error_shown = False  
 
         except Exception as e:
-            if not self.update_gui_error_shown:
-                self.update_gui_error_shown = True  
+            if not self.updateGui_error_shown:
+                self.updateGui_error_shown = True  
                 print("Error while updating the GUI:", e)
 
-    def gui_main(self, status):
-        if status == 0: # Disconnected from OPCUA Server
-            print("Disconnected from the server. Attempting to reconnect.")
-            self.show_message("Systemstatus", "Disconnected from the server. Attempting to reconnect.")
-            self.update_gui_timer.stop()
-
-        elif status == 1: # Connected to OPCUA Server and Twincat is in Running mode
-            print("System Ready!")
-            self.show_message("Systemstatus", "System Ready!")
-            self.update_gui_timer.start()
-
-        elif status == 2: # Connected to OPCUA Server and Twincat is in Config mode
-            print("Warning: Twincat is in Config mode. No data received from server.")
-            self.show_message("Systemstatus", "Twincat is in Config mode. No data received from server.")
-            self.update_gui_timer.stop()
-
-    def retrieve_variables_json_measurement(self):
+    def advanceRetrieveVariablesJson(self):
 
         print('json parameter file dropped')
 
@@ -226,9 +238,9 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         else:
             self.json_focal.setCurrentIndex(1)
 
-        self.advance_update_parameters()
+        self.advanceUpdateParameters()
 
-    def advance_update_parameters(self):
+    def advanceUpdateParameters(self):
 
         self.advance_kV = self.json_kV.text()
         self.advance_mA = self.json_mA.text()
@@ -317,6 +329,24 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         # self.advance_
         # self.advance_
 
+    def guiMain(self, status):
+        if status == 0: # Disconnected from OPCUA Server
+            print("Disconnected from the server. Attempting to reconnect.")
+            self.showMessage("Systemstatus", "Disconnected from the server. Attempting to reconnect.")
+            self.updateGui_timer.stop()
+
+        elif status == 1: # Connected to OPCUA Server and Twincat is in Running mode
+            print("System Ready!")
+            self.showMessage("Systemstatus", "System Ready!")
+            self.getNodes()
+            self.assignFunctions()
+            self.updateGui_timer.start()
+
+
+        elif status == 2: # Connected to OPCUA Server and Twincat is in Config mode
+            print("Warning: Twincat is in Config mode. No data received from server.")
+            self.showMessage("Systemstatus", "Twincat is in Config mode. No data received from server.")
+            self.updateGui_timer.stop()
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)

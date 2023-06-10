@@ -1,14 +1,14 @@
 from PyQt6 import QtWidgets, uic, QtCore, QtGui
 from PyQt6.QtGui import QPixmap, QImage, QDoubleValidator
-from PyQt6.QtWidgets import QTableWidgetItem, QMenu, QFileDialog, QGraphicsView, QGraphicsScene, QMessageBox
-from PyQt6.QtCore import Qt, QLocale
+from PyQt6.QtWidgets import QTableWidgetItem, QMenu, QFileDialog, QGraphicsView, QGraphicsScene, QMessageBox, QApplication
+from PyQt6.QtCore import Qt, QLocale, QThread
 from datetime import datetime
 
 import opcua as ua
 import time
 import sys
 
-from client_sub import MySubHandler
+from opcua_client_thread import OpcuaThread
 
 ########################################################################################
 if hasattr(QtCore.Qt, 'AA_EnableHighDpiScaling'):
@@ -22,33 +22,20 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         uic.loadUi('gui_v2.0.ui', self)
-
-        self.client = None
-        self.server_connected = False  # State of the server connection
-        self.prev_server_connected = None 
-        self.status = None
-        self.initial_attempt = False
-        self.error_displayed = False
-        self.retry_count = 0  # Counter for connection retries
+        self.update_gui_error_shown = False 
         self.stackedWidget.setCurrentIndex(0)
         self.stackedWidget_2.setCurrentIndex(0)
 
-        self.url = "opc.tcp://localhost:4840"
-        self.username = "admin1"
-        self.password = "admin1"
-        self.node_list = ["ns=4;s=MAIN.myVar1", "ns=4;s=MAIN.myVar1"]
-        self.active_subscriptions = []
-        self.subscription_info = {}
+        self.opcua_thread = OpcuaThread()
+        self.opcua_thread.statusSignal.connect(self.gui_main)
+        self.opcua_thread.showMessageSignal.connect(self.update_text)
+        self.opcua_thread.start()
 
-        self.connection_check_timer = QtCore.QTimer(self)
-        self.connection_check_timer.timeout.connect(self.check_server_status)
-        self.connection_check_timer.start(500) 
+        self.node_values = self.opcua_thread.get_all_node_values()
 
         self.update_gui_timer = QtCore.QTimer()
         self.update_gui_timer.setInterval(50)
-        self.update_gui_timer.timeout.connect(self.update_GUI)
-
-        QtCore.QTimer.singleShot(500, self.opcua_server_connect)
+        self.update_gui_timer.timeout.connect(self.update_gui)
 
     # update status of the system to the user
     def show_message(self, title, message):
@@ -65,10 +52,19 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.error_handling.scrollToBottom()
 
     def closeEvent(self, event):
-        self.update_gui_timer.stop()
-        self.connection_check_timer.stop()
-        self.opcua_server_disconnect()
-        event.accept()  # Accept the close event
+        # Stop the timer (if it's running)
+        if self.update_gui_timer.isActive():
+            self.update_gui_timer.stop()
+
+        self.opcua_thread.is_terminating = True
+
+        # Disconnect from OPC UA server
+        self.opcua_thread.opcua_server_disconnect()
+
+        # Stop the thread
+        self.opcua_thread.quit()  # request to stop
+        # Accept the close event
+        event.accept()
 
     # set the pages between normal, advance and expert user
     def changePage(self, index):
@@ -85,153 +81,38 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.groupBox_8.updated.connect(self.retrieve_variables_json_measurement)
         self.json_scan_mode.activated.connect(self.changeMode)
 
-    def setup(self):
-        # Get the node once and store it
-        if self.client is not None:
-            try:
-                self.bBOOL1 = self.client.get_node("ns=4;s=OPCUA.bBOOL1")
-            except Exception as e:
-                print("Error while getting the node:", e)
+    def update_text(self, message):
+       print(f"Received message {message}")
+       self.show_message("System Status", message)
 
-    def opcua_server_connect(self, retries=3):
-        wait_time = 1  # Initial wait time between retries
-        for i in range(retries):
-            try:
-                self.client = ua.Client(self.url)
-                self.client.set_user(self.username)
-                self.client.set_password(self.password)
-                self.client.connect()
-                print("Connected to OPC UA server")
-                self.client.load_type_definitions()
-                self.setup()
-                return  # Exit the function since connection is successful
-            except Exception as e:
-                self.server_connected = False
-                self.show_message("Systemstatus", f"Beim Versuch, eine Verbindung zum OPC UA-Server herzustellen, ist ein Fehler aufgetreten {i+1}")
-                if i < retries - 1:  # Don't wait after the last attempt
-                    time.sleep(wait_time)  # Wait for an increasing time before retrying
-                    wait_time *= 5  # Double the wait time for the next retry
-        self.show_message("Systemstatus", "Alle Verbindungsversuche sind fehlgeschlagen. Bitte überprüfen Sie Ihre Servereinstellungen und starten Sie die GUI erneut.")
-
-    def opcua_server_disconnect(self):
-        if self.client is not None:
-            try:
-                if self.subscription_info:
-                    single_subscription, _ = list(self.subscription_info.values())[0]
-                    try:
-                        for _, (_, handle) in self.subscription_info.items():
-                            # Check if the subscription is still active before unsubscribing
-                            if single_subscription in self.active_subscriptions:
-                                single_subscription.unsubscribe(handle)
-                                time.sleep(0.1)
-                        single_subscription.delete()
-                        time.sleep(0.1)
-                        self.active_subscriptions.remove(single_subscription)
-                    except Exception as e:
-                        print("Error while unsubscribing from subscription:", e)
-
-                    self.subscription_info.clear()
-
-                self.client.disconnect()
-                print("Disconnected from OPC UA server")
-            except Exception as e:
-                print("Error disconnecting from OPC UA server:", e)
-        else:
-            print("OPC UA client not initialized or already disconnected")
-
-    def delete_subscriptions(self):
-        if self.client is not None:
-            try:
-                if self.subscription_info:
-                    single_subscription, _ = list(self.subscription_info.values())[0]
-                    try:
-                        single_subscription.delete()
-                        time.sleep(0.1)
-                        self.active_subscriptions.remove(single_subscription)
-                    except Exception as e:
-                        print("Error while deleting subscription:", e)
-
-                    self.subscription_info.clear()
-
-                print("Subscriptions deleted")
-            except Exception as e:
-                print("Error deleting subscriptions:", e)
-        else:
-            print("OPC UA client not initialized or already disconnected")
-
-    def subscribe_to_nodes(self):
-        if self.client is not None:
-            try:
-                self.my_sub_handler = MySubHandler()
-                self.client.load_type_definitions()
-                single_subscription = self.client.create_subscription(100, self.my_sub_handler)
-                self.active_subscriptions.append(single_subscription)
-                for node_id in self.node_list:
-                    handle = single_subscription.subscribe_data_change(self.client.get_node(node_id))
-                    print(f"Subscribed to data changes for {node_id}")
-                    self.subscription_info[node_id] = (single_subscription, handle)
-            except Exception as e:
-                print(f"Error subscribing to data changes for nodes: {e}")
-        else:
-            print("OPC UA client not initialized or already disconnected")
-                
-    def is_connected(self):
-        if self.client is None:
-            return False
+    def update_gui(self):
         try:
-            self.client.get_endpoints()
-            return True
-        except Exception:
-            return False
+            if self.opcua_thread.is_sub:
+                self.myBool_value = self.node_values["ns=4;s=MAIN.myVar1"]["myBool"]
+                self.myInt1_value = self.node_values["ns=4;s=MAIN.myVar1"]["myInt"]
+                self.myInt2_value = self.node_values["ns=4;s=MAIN.myVar2"]["myInt"]
 
-    def get_status(self):
-        # Check the value of the node
-        if self.client is not None and hasattr(self, 'bBOOL1'):
-            try:
-                self.BOOL1 = self.bBOOL1.get_value()
-                return True
-            except Exception as e:
-                return False
+                self.ZB_nActPos.setText(str(self.myInt1_value))
+                self.R_nActPos.setText(str(self.myInt2_value))
 
-    def check_server_status(self):
-        self.get_status()
-        current_status = self.is_connected()
-        if current_status != self.prev_server_connected:
-            if not current_status:
-                self.status = 0
-            elif current_status:
-                if self.get_status():
-                    self.status = 1
-                elif not self.get_status():
-                    self.status = 2
-            self.gui_main(self.status)
-        self.prev_server_connected = current_status
+            self.update_gui_error_shown = False  
 
-    def update_GUI(self):
-        if self.client is not None:
-            try:       
-                self.BOOL1 = self.bBOOL1.get_value()
-
-                # Reset error flag because update was successful
-                self.error_displayed = False
-            except Exception as e:
-                if not self.error_displayed:
-                    print("Error while updating the GUI:", e)
-                    self.error_displayed = True
+        except Exception as e:
+            if not self.update_gui_error_shown:
+                self.update_gui_error_shown = True  
+                print("Error while updating the GUI:", e)
 
     def gui_main(self, status):
         if status == 0: # Disconnected from OPCUA Server
             print("Disconnected from the server. Attempting to reconnect.")
             self.show_message("Systemstatus", "Disconnected from the server. Attempting to reconnect.")
-            self.delete_subscriptions()
             self.update_gui_timer.stop()
-            self.opcua_server_connect()
+
         elif status == 1: # Connected to OPCUA Server and Twincat is in Running mode
             print("System Ready!")
             self.show_message("Systemstatus", "System Ready!")
-            self.assign_functions()
-            self.subscribe_to_nodes()
             self.update_gui_timer.start()
+
         elif status == 2: # Connected to OPCUA Server and Twincat is in Config mode
             print("Warning: Twincat is in Config mode. No data received from server.")
             self.show_message("Systemstatus", "Twincat is in Config mode. No data received from server.")

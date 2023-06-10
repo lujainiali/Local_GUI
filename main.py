@@ -94,6 +94,7 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
                 print("Error while getting the node:", e)
 
     def opcua_server_connect(self, retries=3):
+        wait_time = 1  # Initial wait time between retries
         for i in range(retries):
             try:
                 self.client = ua.Client(self.url)
@@ -103,17 +104,14 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
                 print("Connected to OPC UA server")
                 self.client.load_type_definitions()
                 self.setup()
-                self.server_connected = True
-                self.initial_attempt = True
                 return  # Exit the function since connection is successful
             except Exception as e:
                 self.server_connected = False
-                print(f"Error connecting to OPC UA server on attempt {i+1}: {e}")
-                self.show_message("Systemstatus", f"Error connecting to OPC UA server on attempt {i+1}")
+                self.show_message("Systemstatus", f"Beim Versuch, eine Verbindung zum OPC UA-Server herzustellen, ist ein Fehler aufgetreten {i+1}")
                 if i < retries - 1:  # Don't wait after the last attempt
-                    time.sleep(1)  # Wait for 1 second before retrying
-        print("All connection attempts failed. Please check your server settings and restart the GUI again.")
-        self.show_message("Systemstatus", "All connection attempts failed. Please check your server settings and restart the GUI again.")
+                    time.sleep(wait_time)  # Wait for an increasing time before retrying
+                    wait_time *= 5  # Double the wait time for the next retry
+        self.show_message("Systemstatus", "Alle Verbindungsversuche sind fehlgeschlagen. Bitte überprüfen Sie Ihre Servereinstellungen und starten Sie die GUI erneut.")
 
     def opcua_server_disconnect(self):
         if self.client is not None:
@@ -199,7 +197,7 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.get_status()
         current_status = self.is_connected()
         if current_status != self.prev_server_connected:
-            if not current_status and self.initial_attempt:
+            if not current_status:
                 self.status = 0
             elif current_status:
                 if self.get_status():

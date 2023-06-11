@@ -34,8 +34,6 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.OpcuaThread.exceptionSignal.connect(self.update_error_text)
         self.OpcuaThread.start()
 
-        self.node_values = self.OpcuaThread.get_all_node_values()
-
         self.updateGui_timer = QtCore.QTimer()
         self.updateGui_timer.setInterval(50)
         self.updateGui_timer.timeout.connect(self.updateGui)

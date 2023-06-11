@@ -54,11 +54,9 @@ class OpcuaThread(QThread):
         self.prev_server_connected = False
         self.update_node_values_error_shown = False  
 
-        self.is_run = False
         self.is_sub = False
         self.is_terminating = False
   
-
         self.my_sub_handler = MySubHandler()
         self.node_list = ["ns=4;s=MAIN.myVar1", "ns=4;s=MAIN.myVar2"]
         self.active_subscriptions = []
@@ -66,12 +64,11 @@ class OpcuaThread(QThread):
         
     def run(self):
         self.opcua_server_connect()  # Try to connect once at the start of the thread
-        self.get_nodes()
         while not self.is_terminating:  # Keep the thread running until termination is requested
 
-            if self.client and self.is_run:
+            if self.client and self.is_sub:
                 self.update_node_values()
-                
+
             self.check_server_status()  # Continuously check the server status
 
     def opcua_server_connect(self, retries = 3):
@@ -208,7 +205,6 @@ class OpcuaThread(QThread):
         
     def update_node_values(self):
         try:
-
             self.MyInt1 = self.nodeMyInt1.get_value()
             self.MyInt2 = self.nodeMyInt2.get_value()
 
@@ -222,9 +218,6 @@ class OpcuaThread(QThread):
                 self.update_node_values_error_shown = True 
                 print("Error while updating the nodes:", e)
 
-    def get_all_node_values(self):
-            return self.my_sub_handler.node_values
-
     def check_server_status(self):
         serverStatus = self.is_connected()
         twincatStatus = None
@@ -234,20 +227,17 @@ class OpcuaThread(QThread):
         if serverStatus != self.prev_server_connected:
             if not serverStatus:
                 if not self.is_terminating:
-                    self.delete_subscriptions()
-                    self.is_run = False
                     self.statusSignal.emit(0)
                     self.exceptionSignal.emit("Die Verbindung zum Server wurde unterbrochen. Versuche, erneut eine Verbindung herzustellen.")
                     if not self.opcua_server_connect():  # Try to reconnect and check if it was successful
                         return  # Exit the method if reconnection failed after retries
             else:
                 if twincatStatus:  # using the return value of get_status
+                    self.get_nodes()
                     self.subscribe_to_nodes()  # Assuming this method sets up your subscription
-                    self.is_run = True
                     self.statusSignal.emit(1)
 
                 else:
-                    self.is_run = False
                     self.statusSignal.emit(2)
                     self.exceptionSignal.emit("Twincat befindet sich im Config-Modus. Keine Daten vom Server empfangen.")
                     # Any additional actions for this case go here...

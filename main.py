@@ -18,6 +18,12 @@ if hasattr(QtCore.Qt, 'AA_UseHighDpiPixmaps'):
     QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps, True)
 #######################################################################################
 
+def test():
+    print("here is to test the git add -p method")
+
+def test_2():
+    print("here is to test the git add -p method")
+
 class Ui_MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()

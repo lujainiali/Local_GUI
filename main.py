@@ -348,7 +348,7 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
 
         elif status == 2: # Connected to OPCUA Server and Twincat is in Config mode
             self.updateGui_timer.stop()
-            self.showMessage("Systemstatus", "System nicht bereit.")
+            self.showMessage("Systemstatus", "System nicht bereit. Keine Daten vom Server empfangen.")
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
